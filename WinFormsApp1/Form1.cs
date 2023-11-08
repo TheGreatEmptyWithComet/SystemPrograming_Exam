@@ -17,12 +17,16 @@ namespace ProhibitedWordsSearchApp
 
     public partial class Form1 : Form
     {
+        private static object fileNameLocker = new object();
+        private static object reportFileLocker = new object();
+
         private List<string> allTextFiles;
 
         // Amount of threads that search prohiboited words in founded files
         private readonly int searchThreadAmount = 10;
 
         private readonly string prohibitedWordSubstitute = "*******";
+        private readonly string reportFileName = "report.txt";
 
         // List of fole names of files that are copied to destination directory. List is needed to check the uniqness of the file name and to create the unique file name if the directory is already contains file with the same name as in copied one
         private List<string> copiedFileNames = new List<string>();
@@ -35,6 +39,10 @@ namespace ProhibitedWordsSearchApp
 
         private List<string> prohibetedLowercaseWords;
 
+        private Dictionary<string, int> globalProhibitedWordsDictionary = new Dictionary<string, int>();
+
+
+
         public Form1()
         {
             InitializeComponent();
@@ -44,6 +52,7 @@ namespace ProhibitedWordsSearchApp
             statusLabel.Text = string.Empty;
             errorMessageLabel.Text = string.Empty;
         }
+
 
 
         private void ExitWhenAppIsRunning()
@@ -234,6 +243,9 @@ namespace ProhibitedWordsSearchApp
         {
             await Task.Run(() =>
             {
+                // Clean report file
+                File.WriteAllText(reportFileName, "Files with prohibited words:\r\n");
+
                 List<Task> processFileTasks = new List<Task>();
                 // Start search worsd in threads
                 for (int i = 0; i < searchThreadAmount; ++i)
@@ -252,9 +264,10 @@ namespace ProhibitedWordsSearchApp
             });
         }
 
-        private void SearchWords(int startSearchIndex, int endSearchIndex)
+        private async void SearchWords(int startSearchIndex, int endSearchIndex)
         {
             int currentFileIndex = startSearchIndex;
+            Dictionary<string, int> localProhibitedWordsDictionary = new Dictionary<string, int>();
 
             do
             {
@@ -264,11 +277,12 @@ namespace ProhibitedWordsSearchApp
                     return;
                 }
 
-
                 // Read text from file and lowercase it to simplify search
                 string fileContent = File.ReadAllText(allTextFiles[currentFileIndex]).ToLower();
 
                 bool prohibitedWordsFound = false;
+                string destinationFileName = string.Empty;
+                int replacementAmount = 0;
 
                 foreach (var word in prohibetedLowercaseWords)
                 {
@@ -278,13 +292,36 @@ namespace ProhibitedWordsSearchApp
                     // If words were found:
                     if (match.Count > 0)
                     {
+                        // Store amount of words for report
+                        replacementAmount += match.Count;
+
+                        // update local words dictionary
+                        if (localProhibitedWordsDictionary.ContainsKey(word))
+                        {
+                            localProhibitedWordsDictionary[word] += match.Count;
+                        }
+                        else
+                        {
+                            localProhibitedWordsDictionary.Add(word, match.Count);
+                        }
+
+                        // When first word is found find out file name to copy and copy it without waiting for the search to complete
                         if (prohibitedWordsFound == false)
                         {
                             prohibitedWordsFound = true;
-                            // get file name
-                            // copy file
+
+                            // Get unique file name
+                            destinationFileName = GetUniqueFileName(allTextFiles[currentFileIndex]);
+
+                            // Copy file
+                            string sourseFileName = allTextFiles[currentFileIndex];
+                            await Task.Run(() =>
+                            {
+                                File.Copy(sourseFileName, destinationFileName);
+                            });
                         }
 
+                        // Replace words with asteriks
                         fileContent.Replace(word, prohibitedWordSubstitute);
                     }
                 }
@@ -292,13 +329,16 @@ namespace ProhibitedWordsSearchApp
                 if (prohibitedWordsFound)
                 {
                     // save file as copy
+                    string copyFileName = Path.GetFileNameWithoutExtension(destinationFileName) + " - copy" + Path.GetExtension(destinationFileName);
+                    File.WriteAllText(Path.Combine(directoryPathTextBox.Text, copyFileName), fileContent);
+
                     // write a report
-                    // - file name
-                    // - file size
-                    // - replacement amount in the file
-                    // update TOP 10 most popular words
+                    string reportText = $"File:\r\n{allTextFiles[currentFileIndex]}\r\nSize: {new FileInfo(allTextFiles[currentFileIndex]).Length}\r\nContains prohibited words: {replacementAmount}\r\n\r\n";
+                    SaveReport(reportText);
                 }
 
+                // Update index
+                ++currentFileIndex;
 
                 // Pause search
                 while (searchStatus == SearchStatus.Pause)
@@ -306,12 +346,44 @@ namespace ProhibitedWordsSearchApp
                 }
 
             } while (searchStatus == SearchStatus.Start && currentFileIndex <= endSearchIndex);
+
+            // update TOP 10 most popular words
+
+
         }
 
+        private string GetUniqueFileName(string fullFileName)
+        {
+            string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(fullFileName);
 
+            lock (fileNameLocker)
+            {
+                int index = 1;
 
+                // Change file name untill it will be unique
+                while (copiedFileNames.Contains(fileNameWithoutExtension))
+                {
+                    fileNameWithoutExtension = Path.GetFileNameWithoutExtension(fullFileName) + $" ({index})";
+                }
 
+                copiedFileNames.Add(fileNameWithoutExtension);
+            }
 
+            return fileNameWithoutExtension + Path.GetExtension(fullFileName);
+        }
+
+        private void SaveReport(string text)
+        {
+            lock (reportFileLocker)
+            {
+                File.AppendAllText(reportFileName, text);
+            }
+        }
+
+        private void UpdateGlobalWordsDictionary(Dictionary<string, int> localDictionary)
+        {
+
+        }
 
 
     }
