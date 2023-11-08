@@ -148,9 +148,10 @@
             pauseButton.Name = "pauseButton";
             pauseButton.Size = new Size(115, 25);
             pauseButton.TabIndex = 10;
-            pauseButton.Text = "Pause";
+            pauseButton.Text = "Pause/Resume";
             toolTip1.SetToolTip(pauseButton, "Load words from file");
             pauseButton.UseVisualStyleBackColor = false;
+            pauseButton.Click += pauseButton_Click;
             // 
             // stopButton
             // 
@@ -162,6 +163,7 @@
             stopButton.Text = "Stop";
             toolTip1.SetToolTip(stopButton, "Load words from file");
             stopButton.UseVisualStyleBackColor = false;
+            stopButton.Click += stopButton_Click;
             // 
             // reportButton
             // 
