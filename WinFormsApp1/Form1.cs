@@ -17,6 +17,8 @@ namespace ProhibitedWordsSearchApp
 
     public partial class Form1 : Form
     {
+        #region Variables & Properties
+        /**************************************************************************************************************/
         private static object fileNameLocker = new object();
         private static object reportFileLocker = new object();
         private static object wordsDictionarylocker = new object();
@@ -24,13 +26,13 @@ namespace ProhibitedWordsSearchApp
         private List<string> allTextFiles;
 
         // Amount of threads that search prohiboited words in founded files
-        private readonly int searchThreadAmount = 10;
+        private readonly int searchThreadAmount = 20;
 
         private readonly string prohibitedWordReplacement = "*******";
         private readonly string reportFileName = "report.txt";
         private readonly int topWordsAmount = 10;
 
-        // List of fole names of files that are copied to destination directory. List is needed to check the uniqness of the file name and to create the unique file name if the directory is already contains file with the same name as in copied one
+        // List of names of the files that are copied to destination directory. List is needed to check the uniqness of the file name and to create the unique file name if the directory is already contains file with the same name as in copied one
         private List<string> copiedFileNames = new List<string>();
 
         // Indexes of found files list from which each thread should start searching prohibitted words
@@ -41,22 +43,28 @@ namespace ProhibitedWordsSearchApp
 
         private List<string> prohibitedWords;
 
-        private Dictionary<string, int> globalProhibitedWordsDictionary = new Dictionary<string, int>();
+        private Dictionary<string, int> globalProhibitedWordsDictionary;
+        #endregion
 
 
-
+        #region Constructor
+        /**************************************************************************************************************/
         public Form1()
         {
             InitializeComponent();
+
             ExitWhenAppIsRunning();
 
             // Clear the status text
-            statusLabel.Text = string.Empty;
+            statusTextBox.Text = string.Empty;
+            logLabel.Text = string.Empty;
             errorMessageLabel.Text = string.Empty;
         }
+        #endregion
 
 
-
+        #region Methods
+        /**************************************************************************************************************/
         private void ExitWhenAppIsRunning()
         {
             // Create named mutex
@@ -111,6 +119,7 @@ namespace ProhibitedWordsSearchApp
         private void selectDirectoryButton_Click(object sender, EventArgs e)
         {
             FolderBrowserDialog folderBrowserDialog = new FolderBrowserDialog();
+            folderBrowserDialog.InitialDirectory = Directory.GetCurrentDirectory();
 
             if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
             {
@@ -121,18 +130,24 @@ namespace ProhibitedWordsSearchApp
         private async void startButton_Click(object sender, EventArgs e)
         {
             searchStatus = SearchStatus.Work;
+            searchProgressProgressBar.Value = 0;
+            globalProhibitedWordsDictionary = new Dictionary<string, int>();
 
             errorMessageLabel.Text = string.Empty;
 
-            // check file copies destination path and word list
-            //if (!Directory.Exists(directoryPathTextBox.Text)|| prohibitedWordsListBox.Items.Count == 0)
-            //{
-            //    errorMessageLabel.Text = "Error: wrong directory path or prohibited words list is empty";
-            //    return;
-            //}
+            //check file copies destination path and word list
+            if (!Directory.Exists(directoryPathTextBox.Text) || prohibitedWordsListBox.Items.Count == 0)
+            {
+                errorMessageLabel.Text = "Error: wrong directory path or prohibited words list is empty";
+                return;
+            }
 
-            // Write prohibited words to list
-            prohibitedWords = prohibitedWordsListBox.Items.Cast<string>().ToList();
+            // Add already existing files from destination directory to list in order not to save new file with the existing name
+            var files = Directory.GetFiles(directoryPathTextBox.Text, "*.txt").Select((file) => Path.GetFileNameWithoutExtension(file)).ToList();
+            copiedFileNames.AddRange(files);
+
+            // Write distinct prohibited words to list
+            prohibitedWords = prohibitedWordsListBox.Items.Cast<string>().Distinct().ToList();
 
             // Get system drives list
             var drives = DriveInfo.GetDrives();
@@ -144,24 +159,31 @@ namespace ProhibitedWordsSearchApp
             }
 
             // Get list of all text files:
-            statusLabel.Text = "Searching files...";
+            statusTextBox.Text = "Searching files...";
             allTextFiles = await FindTextFilesAsync(drives.ToList());
 
+            searchProgressProgressBar.Maximum = allTextFiles.Count;
+
             // Start search
-            statusLabel.Text = $"{allTextFiles.Count} files were found. Searching prohibited words...";
-            // Find out position of file in the list each thread should start search from
+            DateTime startTime = DateTime.Now;
+            statusTextBox.Text = $"{allTextFiles.Count} files were found. Searching prohibited words...";
+            // Find out position of files in the list that each thread should start search from
             FillStartSearchIndexesAsync();
 
-            // Start process files (search words, copy and save files)
+            // Process files (search words, copy and save files)
             await ProcessFilesAsync();
+
+            // Output summary info
+            DateTime stopTime = DateTime.Now;
             if (searchStatus == SearchStatus.Stop)
             {
-                statusLabel.Text = $"Searching words was stopped by user. {searchProgressProgressBar.Value} files were processed. See report for detailes";
+                statusTextBox.Text = $"Searching words was stopped by user. {searchProgressProgressBar.Value} files were processed. Process time: {stopTime.Subtract(startTime).TotalSeconds} seconds. See report for detailes";
             }
             else
             {
-                statusLabel.Text = $"Searching words end. {searchProgressProgressBar.Value} files were processed. See report for detailes";
+                statusTextBox.Text = $"Searching words end. {searchProgressProgressBar.Value} files were processed. Process time: {stopTime.Subtract(startTime).TotalSeconds} seconds. See report for detailes";
             }
+            logLabel.Text = string.Empty;
         }
 
         private async Task<List<string>> FindTextFilesAsync(List<DriveInfo> drives)
@@ -246,23 +268,23 @@ namespace ProhibitedWordsSearchApp
                 File.WriteAllText(reportFileName, "Files with prohibited words:\r\n");
 
                 // Search worsd in threads
-                List<Task> processFileTasks = new List<Task>();
+                Task[] processFileTasks = new Task[searchThreadAmount];
                 for (int i = 0; i < searchThreadAmount; ++i)
                 {
+                    // Find words position in the list for each thread to search in
                     int startSearchIndex = startSearchIndexes[i];
-                    int endSearchIndex = i <= searchThreadAmount - 1 ? startSearchIndexes[i + 1] - 1 : allTextFiles.Count - 1;
+                    int endSearchIndex = i < searchThreadAmount - 1 ? startSearchIndexes[i + 1] - 1 : allTextFiles.Count - 1;
 
-                    var task = Task.Run(() => { SearchWords(startSearchIndex, endSearchIndex); });
-                    processFileTasks.Add(task);
+                    // Start search words in files
+                    processFileTasks[i] = Task.Run(async () => { await SearchWordsAsync(startSearchIndex, endSearchIndex); });
                 }
 
-                // Wait for all threads are complite work or were stopped
-                Task.WaitAll(processFileTasks.ToArray());
+                Task.WaitAll(processFileTasks);
 
                 // Write most popular words to report
                 var topWords = globalProhibitedWordsDictionary.OrderByDescending((i) => i.Value).Take(topWordsAmount);
                 StringBuilder reportText = new StringBuilder();
-                reportText.AppendLine("most popular prohibited words:");
+                reportText.AppendLine("Most popular prohibited words:");
                 foreach (var word in topWords)
                 {
                     reportText.AppendLine($"{word.Key} - {word.Value} ocurences");
@@ -271,7 +293,7 @@ namespace ProhibitedWordsSearchApp
             });
         }
 
-        private async void SearchWords(int startSearchIndex, int endSearchIndex)
+        private async Task SearchWordsAsync(int startSearchIndex, int endSearchIndex)
         {
             int currentFileIndex = startSearchIndex;
             Dictionary<string, int> localProhibitedWordsDictionary = new Dictionary<string, int>();
@@ -285,71 +307,87 @@ namespace ProhibitedWordsSearchApp
                 }
 
                 // Read text from file
-                string fileContent = File.ReadAllText(allTextFiles[currentFileIndex]);
-
-                bool prohibitedWordsFound = false;
-                string destinationFileName = string.Empty;
-                int prohibitedWordsInFileAmount = 0;
-
-                // Check occurence of each word from list in the file content
-                foreach (var word in prohibitedWords)
+                try
                 {
-                    // Search pattern to find whole word but not a part
-                    string pattern = $"\b{word}\\b";
+                    string fileContent = File.ReadAllText(allTextFiles[currentFileIndex]);
+                    WriteLog($"Process file {allTextFiles[currentFileIndex]}");
 
-                    // Find all occurences of prohibited word in the file
-                    var match = Regex.Matches(fileContent, pattern, RegexOptions.IgnoreCase);
+                    bool prohibitedWordsFound = false;
+                    string destinationFileName = string.Empty;
+                    int prohibitedWordsInFileAmount = 0;
 
-                    // If words were found:
-                    if (match.Count > 0)
+                    // Check occurence of each word from list in the file content
+                    foreach (var word in prohibitedWords)
                     {
-                        // Store amount of words for report
-                        prohibitedWordsInFileAmount += match.Count;
+                        // Search pattern to find whole word but not a part
+                        string pattern = $"\\b{word}\\b";
 
-                        // Update local words dictionary
-                        if (localProhibitedWordsDictionary.ContainsKey(word))
+                        // Find all occurences of prohibited word in the file
+                        var match = Regex.Matches(fileContent, pattern, RegexOptions.IgnoreCase);
+
+                        // If words were found:
+                        if (match.Count > 0)
                         {
-                            localProhibitedWordsDictionary[word] += match.Count;
-                        }
-                        else
-                        {
-                            localProhibitedWordsDictionary.Add(word, match.Count);
-                        }
+                            // Store amount of words for report
+                            prohibitedWordsInFileAmount += match.Count;
 
-                        // When first word is found find out file name to copy and copy it without waiting for the search to complete
-                        if (prohibitedWordsFound == false)
-                        {
-                            prohibitedWordsFound = true;
-
-                            // Get unique file name
-                            destinationFileName = GetUniqueFileName(allTextFiles[currentFileIndex]);
-
-                            // Copy file to destination directory
-                            string sourseFileName = allTextFiles[currentFileIndex];
-                            await Task.Run(() =>
+                            // Update local words dictionary
+                            if (localProhibitedWordsDictionary.ContainsKey(word))
                             {
-                                File.Copy(sourseFileName, destinationFileName);
-                            });
-                        }
+                                localProhibitedWordsDictionary[word] += match.Count;
+                            }
+                            else
+                            {
+                                localProhibitedWordsDictionary.Add(word, match.Count);
+                            }
 
-                        // Replace words with asteriks
-                        fileContent = Regex.Replace(fileContent, pattern, prohibitedWordReplacement, RegexOptions.IgnoreCase);
+                            // When first word is found find out file name to copy and copy it without waiting for the search to complete
+                            if (prohibitedWordsFound == false)
+                            {
+                                prohibitedWordsFound = true;
+
+                                // Get unique file name
+                                destinationFileName = GetUniqueFileName(allTextFiles[currentFileIndex]);
+
+                                // Copy file to destination directory
+                                string sourseFileName = allTextFiles[currentFileIndex];
+                                await Task.Run(() =>
+                                {
+                                    try
+                                    {
+                                        File.Copy(sourseFileName, Path.Combine(directoryPathTextBox.Text, destinationFileName));
+                                    }
+                                    catch (Exception e) { }
+                                });
+                            }
+
+                            // Replace words with asteriks
+                            fileContent = Regex.Replace(fileContent, pattern, prohibitedWordReplacement, RegexOptions.IgnoreCase);
+                        }
+                    }
+
+                    if (prohibitedWordsFound)
+                    {
+                        // Create new file name
+                        string copyFileName = Path.GetFileNameWithoutExtension(destinationFileName) + " - copy" + Path.GetExtension(destinationFileName);
+                        // Save file copy
+                        try
+                        {
+                            File.WriteAllText(Path.Combine(directoryPathTextBox.Text, copyFileName), fileContent);
+                        }
+                        catch (Exception e) { }
+
+                        // Create report text
+                        string reportText = $"File: {allTextFiles[currentFileIndex]}\r\nSize: {new FileInfo(allTextFiles[currentFileIndex]).Length}\r\nContains prohibited words: {prohibitedWordsInFileAmount}\r\n\r\n";
+                        SaveReport(reportText);
                     }
                 }
-
-                if (prohibitedWordsFound)
+                catch (Exception ex)
                 {
-                    // Create new file name
-                    string copyFileName = Path.GetFileNameWithoutExtension(destinationFileName) + " - copy" + Path.GetExtension(destinationFileName);
-                    // Save file copy
-                    File.WriteAllText(Path.Combine(directoryPathTextBox.Text, copyFileName), fileContent);
-
-                    // Create report text
-                    string reportText = $"File:\r\n{allTextFiles[currentFileIndex]}\r\nSize: {new FileInfo(allTextFiles[currentFileIndex]).Length}\r\nContains prohibited words: {prohibitedWordsInFileAmount}\r\n\r\n";
-                    SaveReport(reportText);
+                    // catch exception file can't be read due to access denie
                 }
 
-                ReportFileProcessed();
+                ReportSearchProcessed();
 
                 // Move to the next file in the list
                 ++currentFileIndex;
@@ -377,6 +415,7 @@ namespace ProhibitedWordsSearchApp
                 while (copiedFileNames.Contains(fileNameWithoutExtension))
                 {
                     fileNameWithoutExtension = Path.GetFileNameWithoutExtension(fullFileName) + $" ({index})";
+                    ++index;
                 }
 
                 copiedFileNames.Add(fileNameWithoutExtension);
@@ -411,11 +450,11 @@ namespace ProhibitedWordsSearchApp
             }
         }
 
-        private void ReportFileProcessed()
+        private void ReportSearchProcessed()
         {
             lock (this)
             {
-                ++searchProgressProgressBar.Value;
+                searchProgressProgressBar.Invoke(() => ++searchProgressProgressBar.Value);
             }
         }
 
@@ -435,5 +474,18 @@ namespace ProhibitedWordsSearchApp
         {
             searchStatus = SearchStatus.Stop;
         }
+
+        private void reportButton_Click(object sender, EventArgs e)
+        {
+            string report = File.ReadAllText(reportFileName);
+            ReportForm reportForm = new ReportForm(report);
+            reportForm.ShowDialog();
+        }
+
+        private void WriteLog(string message)
+        {
+            logLabel.Invoke(() => logLabel.Text = message);
+        }
     }
+    #endregion
 }

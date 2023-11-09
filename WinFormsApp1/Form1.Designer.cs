@@ -43,10 +43,11 @@
             stopButton = new Button();
             reportButton = new Button();
             label2 = new Label();
-            statusLabel = new Label();
             label3 = new Label();
             searchProgressProgressBar = new ProgressBar();
             errorMessageLabel = new Label();
+            logLabel = new Label();
+            statusTextBox = new TextBox();
             SuspendLayout();
             // 
             // prohibitedWordsListBox
@@ -174,6 +175,7 @@
             reportButton.Text = "Report";
             toolTip1.SetToolTip(reportButton, "Load words from file");
             reportButton.UseVisualStyleBackColor = true;
+            reportButton.Click += reportButton_Click;
             // 
             // label2
             // 
@@ -185,20 +187,10 @@
             label2.TabIndex = 13;
             label2.Text = "Status:";
             // 
-            // statusLabel
-            // 
-            statusLabel.AutoSize = true;
-            statusLabel.Location = new Point(403, 101);
-            statusLabel.Margin = new Padding(4, 0, 4, 0);
-            statusLabel.Name = "statusLabel";
-            statusLabel.Size = new Size(98, 17);
-            statusLabel.TabIndex = 14;
-            statusLabel.Text = "<Status label>";
-            // 
             // label3
             // 
             label3.AutoSize = true;
-            label3.Location = new Point(273, 140);
+            label3.Location = new Point(273, 156);
             label3.Margin = new Padding(4, 0, 4, 0);
             label3.Name = "label3";
             label3.Size = new Size(117, 17);
@@ -207,7 +199,7 @@
             // 
             // searchProgressProgressBar
             // 
-            searchProgressProgressBar.Location = new Point(275, 174);
+            searchProgressProgressBar.Location = new Point(275, 190);
             searchProgressProgressBar.Name = "searchProgressProgressBar";
             searchProgressProgressBar.Size = new Size(780, 23);
             searchProgressProgressBar.TabIndex = 16;
@@ -216,22 +208,45 @@
             // 
             errorMessageLabel.AutoSize = true;
             errorMessageLabel.ForeColor = Color.Red;
-            errorMessageLabel.Location = new Point(273, 222);
+            errorMessageLabel.Location = new Point(275, 265);
             errorMessageLabel.Margin = new Padding(4, 0, 4, 0);
             errorMessageLabel.Name = "errorMessageLabel";
             errorMessageLabel.Size = new Size(151, 17);
             errorMessageLabel.TabIndex = 17;
             errorMessageLabel.Text = "<Error message label>";
             // 
+            // logLabel
+            // 
+            logLabel.AutoSize = true;
+            logLabel.Location = new Point(273, 232);
+            logLabel.Margin = new Padding(4, 0, 4, 0);
+            logLabel.Name = "logLabel";
+            logLabel.Size = new Size(82, 17);
+            logLabel.TabIndex = 18;
+            logLabel.Text = "<Log label>";
+            // 
+            // statusTextBox
+            // 
+            statusTextBox.BackColor = SystemColors.Control;
+            statusTextBox.BorderStyle = BorderStyle.None;
+            statusTextBox.Location = new Point(406, 101);
+            statusTextBox.Multiline = true;
+            statusTextBox.Name = "statusTextBox";
+            statusTextBox.ReadOnly = true;
+            statusTextBox.Size = new Size(649, 49);
+            statusTextBox.TabIndex = 19;
+            statusTextBox.Text = "<Status TextBox>";
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(8F, 16F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1067, 497);
+            Controls.Add(statusTextBox);
+            Controls.Add(logLabel);
             Controls.Add(errorMessageLabel);
             Controls.Add(searchProgressProgressBar);
             Controls.Add(label3);
-            Controls.Add(statusLabel);
             Controls.Add(label2);
             Controls.Add(reportButton);
             Controls.Add(stopButton);
@@ -268,10 +283,11 @@
         private Button stopButton;
         private Button reportButton;
         private Label label2;
-        private Label statusLabel;
         private Label label3;
         private ProgressBar searchProgressProgressBar;
         private Label errorMessageLabel;
+        private Label logLabel;
+        private TextBox statusTextBox;
     }
 }
 
